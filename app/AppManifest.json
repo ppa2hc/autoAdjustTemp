@@ -1,11 +1,21 @@
 [
     {
-        "name": "SampleApp",
+        "name": "autoadjusttemp",
         "vehicleModel": {
-            "src": "https://github.com/COVESA/vehicle_signal_specification/releases/download/v3.0/vss_rel_3.0.json",
+            "src": "./app/vspec.json",
             "datapoints": [
                 {
-                    "path": "Vehicle.Speed",
+                    "path": "Vehicle.Cabin.HVAC.Station.Row1.Left.Temperature",
+                    "required": "true",
+                    "access": "write"
+                },
+                {
+                    "path": "Vehicle.Cabin.HVAC.Station.Row1.Left.FanSpeed",
+                    "required": "true",
+                    "access": "write"
+                },
+                {
+                    "path": "Vehicle.Cabin.HVAC.AmbientAirTemperature",
                     "required": "true",
                     "access": "read"
                 }

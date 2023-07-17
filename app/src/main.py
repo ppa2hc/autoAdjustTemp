@@ -12,8 +12,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""A sample skeleton vehicle app."""
-
+# flake8: noqa: E501,B950 line too long
 import asyncio
 import json
 import logging
@@ -24,7 +23,7 @@ from sdv.util.log import (  # type: ignore
     get_opentelemetry_log_format,
 )
 from sdv.vdb.reply import DataPointReply
-from sdv.vehicle_app import VehicleApp, subscribe_topic
+from sdv.vehicle_app import VehicleApp
 from vehicle import Vehicle, vehicle  # type: ignore
 
 # Configure the VehicleApp logger with the necessary log config and level.
@@ -33,91 +32,51 @@ logging.basicConfig(format=get_opentelemetry_log_format())
 logging.getLogger().setLevel("DEBUG")
 logger = logging.getLogger(__name__)
 
-GET_SPEED_REQUEST_TOPIC = "sampleapp/getSpeed"
-GET_SPEED_RESPONSE_TOPIC = "sampleapp/getSpeed/response"
-DATABROKER_SUBSCRIPTION_TOPIC = "sampleapp/currentSpeed"
 
-
-class SampleApp(VehicleApp):
-    """
-    Sample skeleton vehicle app.
-
-    The skeleton subscribes to a getSpeed MQTT topic
-    to listen for incoming requests to get
-    the current vehicle speed and publishes it to
-    a response topic.
-
-    It also subcribes to the VehicleDataBroker
-    directly for updates of the
-    Vehicle.Speed signal and publishes this
-    information via another specific MQTT topic
-    """
+class AutoAdjustTempApp(VehicleApp):
+    """Velocitas App for autoAdjustTemp."""
 
     def __init__(self, vehicle_client: Vehicle):
-        # SampleApp inherits from VehicleApp.
         super().__init__()
         self.Vehicle = vehicle_client
+        self.hmiPresetTemp = None
+        self.currentFanSpeed = None
 
     async def on_start(self):
-        """Run when the vehicle app starts"""
-        # This method will be called by the SDK when the connection to the
-        # Vehicle DataBroker is ready.
-        # Here you can subscribe for the Vehicle Signals update (e.g. Vehicle Speed).
-        await self.Vehicle.Speed.subscribe(self.on_speed_change)
+        logger.info("HMI: Set desired temp: 25")
+        await self.Vehicle.Cabin.HVAC.Station.Row1.Left.Temperature.set(25)
+        logger.info("default fan speed: 50")
+        await self.Vehicle.Cabin.HVAC.Station.Row1.Left.FanSpeed.set(50)
 
-    async def on_speed_change(self, data: DataPointReply):
-        """The on_speed_change callback, this will be executed when receiving a new
-        vehicle signal updates."""
-        # Get the current vehicle speed value from the received DatapointReply.
-        # The DatapointReply containes the values of all subscribed DataPoints of
-        # the same callback.
-        vehicle_speed = data.get(self.Vehicle.Speed).value
+    
+        await self.Vehicle.Cabin.HVAC.AmbientAirTemperature.subscribe(self.on_AmbientAirTemperature_changed)
 
-        # Do anything with the received value.
-        # Example:
-        # - Publishes current speed to MQTT Topic (i.e. DATABROKER_SUBSCRIPTION_TOPIC).
-        await self.publish_mqtt_event(
-            DATABROKER_SUBSCRIPTION_TOPIC,
-            json.dumps({"speed": vehicle_speed}),
-        )
-
-    @subscribe_topic(GET_SPEED_REQUEST_TOPIC)
-    async def on_get_speed_request_received(self, data: str) -> None:
-        """The subscribe_topic annotation is used to subscribe for incoming
-        PubSub events, e.g. MQTT event for GET_SPEED_REQUEST_TOPIC.
-        """
-
-        # Use the logger with the preferred log level (e.g. debug, info, error, etc)
-        logger.debug(
-            "PubSub event for the Topic: %s -> is received with the data: %s",
-            GET_SPEED_REQUEST_TOPIC,
-            data,
-        )
-
-        # Getting current speed from VehicleDataBroker using the DataPoint getter.
-        vehicle_speed = (await self.Vehicle.Speed.get()).value
-
-        # Do anything with the speed value.
-        # Example:
-        # - Publishe the vehicle speed to MQTT topic (i.e. GET_SPEED_RESPONSE_TOPIC).
-        await self.publish_mqtt_event(
-            GET_SPEED_RESPONSE_TOPIC,
-            json.dumps(
-                {
-                    "result": {
-                        "status": 0,
-                        "message": f"""Current Speed = {vehicle_speed}""",
-                    },
-                }
-            ),
-        )
+    async def on_AmbientAirTemperature_changed(self, data: DataPointReply):
+        AmbientAirTemperature = data.get(self.Vehicle.Cabin.HVAC.AmbientAirTemperature).value
+        logger.info("on_AmbientAirTemperature_changed !!!")
+        self.hmiPresetTemp = (await self.Vehicle.Cabin.HVAC.Station.Row1.Left.Temperature.get()).value
+        if AmbientAirTemperature > (self.hmiPresetTemp + 1):
+            self.currentFanSpeed = (await self.Vehicle.Cabin.HVAC.Station.Row1.Left.FanSpeed.get()).value
+            if self.currentFanSpeed > 80:
+                self.currentFanSpeed = 90
+            else:
+                self.currentFanSpeed = self.currentFanSpeed + 10
+            await self.Vehicle.Cabin.HVAC.Station.Row1.Left.FanSpeed.set(self.currentFanSpeed)
+        elif AmbientAirTemperature < (self.hmiPresetTemp - 1):
+            self.currentFanSpeed = (await self.Vehicle.Cabin.HVAC.Station.Row1.Left.FanSpeed.get()).value
+            if self.currentFanSpeed < 20:
+                self.currentFanSpeed = 10
+            else:
+                self.currentFanSpeed = self.currentFanSpeed - 10
+            await self.Vehicle.Cabin.HVAC.Station.Row1.Left.FanSpeed.set(self.currentFanSpeed)
+        else:
+            await self.Vehicle.Cabin.HVAC.Station.Row1.Left.FanSpeed.set(10)
+        await asyncio.sleep(1)
 
 
 async def main():
-    """Main function"""
-    logger.info("Starting SampleApp...")
-    # Constructing SampleApp and running it.
-    vehicle_app = SampleApp(vehicle)
+    logger.info("Starting AutoAdjustTempApp...")
+    vehicle_app = AutoAdjustTempApp(vehicle)
     await vehicle_app.run()
 
 
